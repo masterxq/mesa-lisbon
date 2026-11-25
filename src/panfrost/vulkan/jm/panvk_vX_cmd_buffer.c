@@ -326,6 +326,7 @@ panvk_per_arch(cmd_open_batch)(struct panvk_cmd_buffer *cmdbuf)
                 VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
    cmdbuf->cur_batch->jobs = UTIL_DYNARRAY_INIT;
    cmdbuf->cur_batch->event_ops = UTIL_DYNARRAY_INIT;
+   cmdbuf->state.uses_poly_heap = false;
    assert(cmdbuf->cur_batch);
    return cmdbuf->cur_batch;
 }
