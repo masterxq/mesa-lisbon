@@ -452,8 +452,18 @@ panvk_physical_device_init(struct panvk_physical_device *device,
    }
 
    switch (arch) {
-   case 6:
    case 7:
+      /* The MT6785 Mali-G76 MC4 is enabled by the Lisbon build. */
+      if (device->model->gpu_prod_id == PAN_PROD_ID(7, 2, 1) &&
+          core_count == 4 && drm_device->bustype == DRM_BUS_PLATFORM &&
+          drm_device->deviceinfo.platform &&
+          drm_device->deviceinfo.platform->compatible &&
+          drm_device->deviceinfo.platform->compatible[0] &&
+          !strcmp(drm_device->deviceinfo.platform->compatible[0],
+                  "mediatek,mt6785-mali"))
+         break;
+      FALLTHROUGH;
+   case 6:
    case 11:
    case 14:
       if (!os_get_option("PAN_I_WANT_A_BROKEN_VULKAN_DRIVER")) {
