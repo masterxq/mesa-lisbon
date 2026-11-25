@@ -517,9 +517,9 @@ static void
 draw_indexed_indirect_helper(
    global VkDrawIndexedIndirectCommand *cmd, global uint8_t *index_buffer_ptr,
    global struct libpan_draw_helper_index_min_max_result *index_min_max_res,
-   uint32_t index_size, uint32_t primitive_vertex_count,
-   uint32_t attrib_bufs_valid, uint32_t attribs_valid,
-   global struct poly_heap *heap,
+   uint32_t index_size, uint32_t primitive_restart,
+   uint32_t primitive_vertex_count, uint32_t attrib_bufs_valid,
+   uint32_t attribs_valid, global struct poly_heap *heap,
    global struct mali_attribute_buffer_packed *varying_bufs_descs,
    global struct mali_attribute_buffer_packed *attrib_bufs_descs,
    global struct libpan_draw_helper_attrib_buf_info *attrib_bufs_infos,
@@ -534,8 +534,34 @@ draw_indexed_indirect_helper(
    const uint32_t first_instance = cmd->firstInstance;
    const uint32_t instance_count = cmd->instanceCount;
    const int32_t vertex_offset = cmd->vertexOffset;
-   const uint32_t min_vertex = index_min_max_res->min;
-   const uint32_t max_vertex = index_min_max_res->max;
+   uint32_t min_vertex = UINT32_MAX;
+   uint32_t max_vertex = 0;
+
+   if (index_min_max_res != NULL) {
+      min_vertex = index_min_max_res->min;
+      max_vertex = index_min_max_res->max;
+   } else {
+      const uint32_t restart =
+         index_size == 4 ? UINT32_MAX : (1u << (index_size * 8)) - 1;
+
+      for (uint32_t i = 0; i < index_count; i++) {
+         uint32_t val;
+
+         if (index_size == 4)
+            val = ((global uint32_t *)index_buffer_ptr)[first_index + i];
+         else if (index_size == 2)
+            val = ((global uint16_t *)index_buffer_ptr)[first_index + i];
+         else
+            val = index_buffer_ptr[first_index + i];
+
+         if (primitive_restart && val == restart)
+            continue;
+
+         min_vertex = min(min_vertex, val);
+         max_vertex = max(max_vertex, val);
+      }
+   }
+
    const uint32_t vertex_range =
       max_vertex >= min_vertex ? max_vertex - min_vertex + 1 : 0;
 
@@ -590,7 +616,7 @@ panlib_draw_helper_batch(global struct libpan_draw_helper_entry *entries,
          (global uint8_t *)e->index_buffer_ptr,
          (global struct libpan_draw_helper_index_min_max_result *)
             e->index_min_max_res,
-         e->index_size, e->primitive_vertex_count,
+         e->index_size, e->primitive_restart, e->primitive_vertex_count,
          e->attrib_bufs_valid, e->attribs_valid, heap,
          (global struct mali_attribute_buffer_packed *)e->varying_bufs_descs,
          (global struct mali_attribute_buffer_packed *)e->attrib_bufs_descs,

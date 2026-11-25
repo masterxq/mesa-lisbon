@@ -55,8 +55,10 @@ struct libpan_draw_helper_entry {
     uint64_t vertex_job;
     uint64_t tiler_job;
     uint32_t index_size;
+    uint32_t primitive_restart;
     uint32_t primitive_vertex_count;
     uint32_t attrib_bufs_valid;
     uint32_t attribs_valid;
+    uint32_t pad;
 };
 #endif

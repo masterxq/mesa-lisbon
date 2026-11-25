@@ -43,6 +43,7 @@
 
 struct panvk_draw_data {
    struct panvk_draw_info info;
+   uint32_t direct_index_count;
    unsigned vertex_range;
    unsigned padded_vertex_count;
    struct mali_invocation_packed invocation;
@@ -81,6 +82,8 @@ struct panvk_draw_data {
       uint64_t attrib_bufs;
    } indirect_info;
 };
+
+#define INLINE_MIN_MAX_COUNT 4096
 
 static bool
 is_indirect_draw(const struct panvk_draw_data *draw)
@@ -1528,7 +1531,9 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
 
    struct panvk_precomp_ctx precomp_ctx = panvk_per_arch(precomp_cs)(cmdbuf);
    uint64_t index_min_max_res_ptr = 0;
-   if (draw->info.index.index_size) {
+   const bool inline_min_max = draw->direct_index_count &&
+                               draw->direct_index_count <= INLINE_MIN_MAX_COUNT;
+   if (draw->info.index.index_size && !inline_min_max) {
       index_min_max_res_ptr =
          panvk_cmd_alloc_dev_mem(
             cmdbuf, desc,
@@ -1566,7 +1571,9 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
       util_dynarray_append(&batch->jobs, write_job.cpu);
 
       const uint32_t index_count =
-         draw->info.index.buffer_size / draw->info.index.index_size;
+         draw->direct_index_count
+            ? draw->direct_index_count
+            : draw->info.index.buffer_size / draw->info.index.index_size;
       uint32_t wg_count = DIV_ROUND_UP(index_count, 65536);
       assert(wg_count <= 65536);
 
@@ -1632,6 +1639,7 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
          .vertex_job = draw->jobs.vertex.gpu,
          .tiler_job = draw->jobs.tiler.gpu,
          .index_size = draw->info.index.index_size,
+         .primitive_restart = draw->info.index.restart_enable,
          .primitive_vertex_count = mesa_vertices_per_prim(draw->info.prim),
          .attrib_bufs_valid = attrib_bufs_valid,
          .attribs_valid = attribs_valid,
@@ -1806,6 +1814,7 @@ panvk_per_arch(CmdDrawIndexed)(VkCommandBuffer commandBuffer,
          .indirect.stride = 0,
          .prim = panvk_get_client_prim(cmdbuf),
       },
+      .direct_index_count = indexCount,
    };
 
    panvk_cmd_draw_indirect(cmdbuf, &draw);
