@@ -1,0 +1,46 @@
+name: panvk-deb
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'lisbon/**'
+
+permissions:
+  contents: read
+
+jobs:
+  panvk-deb:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 180
+    container:
+      image: debian:forky
+    steps:
+      - name: Install git
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates git
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install build dependencies
+        run: sh .lisbon/build-panvk-deb.sh deps
+
+      - name: Build PanVK
+        run: sh .lisbon/build-panvk-deb.sh build
+
+      - name: Build package
+        run: sh .lisbon/build-panvk-deb.sh package
+
+      - name: Show package
+        run: |
+          dpkg-deb -I deb/*.deb
+          dpkg-deb -c deb/*.deb
+
+      - name: Upload package
+        uses: actions/upload-artifact@v7
+        with:
+          name: panvk-lisbon-deb
+          path: deb/*.deb
+          if-no-files-found: error
