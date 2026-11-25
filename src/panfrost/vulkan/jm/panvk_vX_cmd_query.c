@@ -80,6 +80,14 @@ close_batch(struct panvk_cmd_buffer *cmd, bool had_batch)
 }
 
 static void
+flush_available(struct panvk_cmd_buffer *cmd)
+{
+   if (cmd->cur_batch &&
+       util_dynarray_num_elements(&cmd->cur_batch->oq_available, uint64_t))
+      panvk_per_arch(cmd_close_batch)(cmd);
+}
+
+static void
 panvk_emit_clear_queries(struct panvk_cmd_buffer *cmd,
                          struct panvk_query_pool *pool, bool availaible,
                          uint32_t first_query, uint32_t query_count)
@@ -95,6 +103,7 @@ panvk_emit_clear_queries(struct panvk_cmd_buffer *cmd,
    };
 
    bool had_batch;
+   flush_available(cmd);
    open_batch(cmd, &had_batch);
    struct panvk_precomp_ctx precomp_ctx = panvk_per_arch(precomp_cs)(cmd);
    panlib_clear_query_result_struct(&precomp_ctx, panlib_1d(query_count),
@@ -182,15 +191,9 @@ panvk_per_arch(CmdEndQueryIndexedEXT)(VkCommandBuffer commandBuffer,
    /* TODO: transform feedback */
    assert(index == 0);
 
-   bool end_sync = cmd->cur_batch != NULL;
-
-   /* Close to ensure we are sync and flush caches */
-   if (end_sync)
-      panvk_per_arch(cmd_close_batch)(cmd);
-
+   uint64_t available_addr = panvk_query_available_dev_addr(pool, query);
    bool had_batch;
    struct panvk_batch *batch = open_batch(cmd, &had_batch);
-   had_batch |= end_sync;
 
    switch (pool->vk.query_type) {
    case VK_QUERY_TYPE_OCCLUSION: {
@@ -203,10 +206,7 @@ panvk_per_arch(CmdEndQueryIndexedEXT)(VkCommandBuffer commandBuffer,
       UNREACHABLE("Unsupported query type");
    }
 
-   uint64_t available_addr = panvk_query_available_dev_addr(pool, query);
-   panvk_emit_write_job(cmd, batch, MALI_WRITE_VALUE_TYPE_IMMEDIATE_32,
-                        available_addr, 1);
-
+   util_dynarray_append(&batch->oq_available, available_addr);
    close_batch(cmd, had_batch);
 }
 
@@ -231,6 +231,7 @@ panvk_meta_copy_query_pool_results(struct panvk_cmd_buffer *cmd,
    };
 
    bool had_batch;
+   flush_available(cmd);
    open_batch(cmd, &had_batch);
    struct panvk_precomp_ctx precomp_ctx = panvk_per_arch(precomp_cs)(cmd);
    panlib_copy_query_result_struct(&precomp_ctx, panlib_1d(query_count),

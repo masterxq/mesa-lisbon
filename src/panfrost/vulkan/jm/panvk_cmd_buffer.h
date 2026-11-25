@@ -35,6 +35,7 @@ struct panvk_batch {
    struct list_head node;
    struct util_dynarray jobs;
    struct util_dynarray event_ops;
+   struct util_dynarray oq_available;
    struct pan_jc vtc_jc;
    struct pan_jc frag_jc;
    struct {

@@ -66,8 +66,8 @@ panvk_cmd_prepare_fragment_job(struct panvk_cmd_buffer *cmdbuf, uint64_t fbd)
    return VK_SUCCESS;
 }
 
-void
-panvk_per_arch(cmd_close_batch)(struct panvk_cmd_buffer *cmdbuf)
+static void
+close_batch(struct panvk_cmd_buffer *cmdbuf)
 {
    struct panvk_batch *batch = cmdbuf->cur_batch;
 
@@ -326,9 +326,50 @@ panvk_per_arch(cmd_open_batch)(struct panvk_cmd_buffer *cmdbuf)
                 VK_SYSTEM_ALLOCATION_SCOPE_OBJECT);
    cmdbuf->cur_batch->jobs = UTIL_DYNARRAY_INIT;
    cmdbuf->cur_batch->event_ops = UTIL_DYNARRAY_INIT;
+   cmdbuf->cur_batch->oq_available = UTIL_DYNARRAY_INIT;
    cmdbuf->state.uses_poly_heap = false;
    assert(cmdbuf->cur_batch);
    return cmdbuf->cur_batch;
+}
+
+void
+panvk_per_arch(cmd_close_batch)(struct panvk_cmd_buffer *cmdbuf)
+{
+   struct panvk_batch *batch = cmdbuf->cur_batch;
+
+   if (!batch)
+      return;
+
+   struct util_dynarray available = batch->oq_available;
+
+   batch->oq_available = UTIL_DYNARRAY_INIT;
+   close_batch(cmdbuf);
+
+   if (util_dynarray_num_elements(&available, uint64_t)) {
+      batch = panvk_per_arch(cmd_open_batch)(cmdbuf);
+
+      util_dynarray_foreach(&available, uint64_t, addr) {
+         struct pan_ptr job =
+            pan_pool_alloc_desc(&cmdbuf->desc_pool.base, WRITE_VALUE_JOB);
+
+         if (!job.gpu)
+            break;
+
+         pan_section_pack(job.cpu, WRITE_VALUE_JOB, PAYLOAD, payload) {
+            payload.type = MALI_WRITE_VALUE_TYPE_IMMEDIATE_32;
+            payload.address = *addr;
+            payload.immediate_value = 1;
+         }
+
+         pan_jc_add_job(&batch->vtc_jc, MALI_JOB_TYPE_WRITE_VALUE, true, false,
+                        0, 0, &job, false);
+         util_dynarray_append(&batch->jobs, job.cpu);
+      }
+
+      close_batch(cmdbuf);
+   }
+
+   util_dynarray_fini(&available);
 }
 
 VkResult
