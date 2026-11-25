@@ -639,6 +639,7 @@ static bool
 bi_lower_lod(nir_builder *b, nir_tex_instr *tex, unsigned arch)
 {
    b->cursor = nir_before_instr(&tex->instr);
+   nir_def *trilinear = nir_steal_tex_src(tex, nir_tex_src_backend1);
    struct tex_srcs srcs = steal_tex_srcs(b, tex, arch);
 
    struct bifrost_texture_operation desc = {
@@ -670,8 +671,10 @@ bi_lower_lod(nir_builder *b, nir_tex_instr *tex, unsigned arch)
       nir_def *lod = nir_i2f32(b, lod_i16);
 
       lod = nir_fdiv_imm(b, lod, 256.0);
-      if (i == 0)
-         lod = nir_fround_even(b, lod);
+      if (i == 0) {
+         nir_def *nearest = nir_fround_even(b, lod);
+         lod = trilinear ? nir_bcsel(b, trilinear, lod, nearest) : nearest;
+      }
 
       comps[i] = lod;
    }

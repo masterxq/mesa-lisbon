@@ -903,6 +903,15 @@ lower_tex(nir_builder *b, nir_tex_instr *tex, const struct lower_desc_ctx *ctx)
       nir_tex_instr_add_src(tex, nir_tex_src_sampler_handle, handle);
 #else
       tex->sampler_index = sampler_index;
+      if (tex->op == nir_texop_lod) {
+         /* The sampler descriptor's mipmap mode is in bits 30-31.
+          * Both trilinear modes have bit 31 set.
+          */
+         nir_def *word = load_resource_deref_desc(
+            b, deref, VK_DESCRIPTOR_TYPE_SAMPLER, 0, 1, 32, ctx);
+         nir_def *trilinear = nir_ine_imm(b, nir_ushr_imm(b, word, 31), 0);
+         nir_tex_instr_add_src(tex, nir_tex_src_backend1, trilinear);
+      }
       if (index_ssa != NULL) {
          nir_tex_instr_add_src(tex, nir_tex_src_sampler_offset,
                                nir_imul_imm(b, index_ssa, desc_stride));
