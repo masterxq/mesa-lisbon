@@ -889,6 +889,10 @@ panvk_per_arch(cmd_prepare_draw_sysvals)(struct panvk_cmd_buffer *cmdbuf,
    }
 
    if (dyn_gfx_state_dirty(cmdbuf, VP_VIEWPORTS) ||
+#if PAN_ARCH <= 7
+       dyn_gfx_state_dirty(cmdbuf, IA_PRIMITIVE_TOPOLOGY) ||
+       dyn_gfx_state_dirty(cmdbuf, RS_LINE_MODE) ||
+#endif
        dyn_gfx_state_dirty(cmdbuf, VP_DEPTH_CLIP_NEGATIVE_ONE_TO_ONE) ||
        dyn_gfx_state_dirty(cmdbuf, RS_DEPTH_CLIP_ENABLE) ||
        dyn_gfx_state_dirty(cmdbuf, RS_DEPTH_CLAMP_ENABLE)) {
@@ -950,10 +954,32 @@ panvk_per_arch(cmd_prepare_draw_sysvals)(struct panvk_cmd_buffer *cmdbuf,
        * oz = minDepth                    if negativeOneToOne is false
        * oz = (maxDepth + minDepth) / 2   if negativeOneToOne is true
        */
+      float xy_bias = 0.0f;
+
+#if PAN_ARCH <= 7
+      /* The rasterizer snaps positions to 1/256 pixel and drops a rectangular
+       * line entirely when both of its long edges run exactly through sample
+       * points in the first columns (or rows) of a tile. That makes
+       * axis-aligned lines on integer coordinates disappear, depending on
+       * their position within the tile and on their length. Shift lines by
+       * one sub-pixel, so that only coordinates one sub-pixel off the pixel
+       * grid can still hit the tie. Triangles and points are not affected and
+       * are left alone.
+       */
+      const struct vk_input_assembly_state *ia =
+         &cmdbuf->vk.dynamic_graphics_state.ia;
+      const bool lines =
+         ia->primitive_topology == VK_PRIMITIVE_TOPOLOGY_LINE_LIST ||
+         ia->primitive_topology == VK_PRIMITIVE_TOPOLOGY_LINE_STRIP;
+
+      if (lines && rs->line.mode != VK_LINE_RASTERIZATION_MODE_BRESENHAM)
+         xy_bias = -1.0f / 256.0f;
+#endif
+
       set_gfx_sysval(cmdbuf, dirty_sysvals, viewport.offset.x,
-                     (0.5f * viewport->width) + viewport->x);
+                     (0.5f * viewport->width) + viewport->x + xy_bias);
       set_gfx_sysval(cmdbuf, dirty_sysvals, viewport.offset.y,
-                     (0.5f * viewport->height) + viewport->y);
+                     (0.5f * viewport->height) + viewport->y + xy_bias);
       set_gfx_sysval(cmdbuf, dirty_sysvals, viewport.offset.z,
                      vp->depth_clip_negative_one_to_one ?
                         0.5f * (z_min + z_max) : z_min);
