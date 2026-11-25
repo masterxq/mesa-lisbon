@@ -921,6 +921,29 @@ lower_tex(nir_builder *b, nir_tex_instr *tex, const struct lower_desc_ctx *ctx)
 
 #if PAN_ARCH < 9
    progress |= lower_bifrost_mirrored_txl_offset(b, tex, ctx);
+   if (tex->op == nir_texop_txd &&
+       nir_tex_instr_src_index(tex, nir_tex_src_offset) >= 0 &&
+       nir_tex_instr_src_index(tex, nir_tex_src_min_lod) < 0 &&
+       nir_tex_instr_src_index(tex, nir_tex_src_bias) < 0 &&
+       nir_tex_instr_src_index(tex, nir_tex_src_plane) < 0 &&
+       nir_tex_instr_src_index(tex, nir_tex_src_projector) < 0) {
+      int samp = nir_tex_instr_src_index(tex, nir_tex_src_sampler_deref);
+      int img = nir_tex_instr_src_index(tex, nir_tex_src_texture_deref);
+      if (samp >= 0 && img >= 0) {
+         nir_deref_instr *sampler = nir_src_as_deref(tex->src[samp].src);
+         nir_deref_instr *texture = nir_src_as_deref(tex->src[img].src);
+         nir_def *words = load_resource_deref_desc(
+            b, sampler, VK_DESCRIPTOR_TYPE_SAMPLER, 0, 2, 32, ctx);
+         nir_def *size = load_tex_size(b, texture, tex->sampler_dim,
+                                      tex->is_array, ctx);
+         nir_def *levels = load_tex_levels(b, texture, tex->sampler_dim, ctx);
+         nir_tex_instr_add_src(tex, nir_tex_src_backend1, words);
+         nir_tex_instr_add_src(tex, nir_tex_src_backend2,
+                               nir_vector_insert_imm(b, size, levels, 3));
+         progress = true;
+      }
+   }
+
    if (tex->op == nir_texop_txs || tex->op == nir_texop_query_levels ||
        tex->op == nir_texop_texture_samples) {
       int tex_src_idx = nir_tex_instr_src_index(tex, nir_tex_src_texture_deref);

@@ -495,6 +495,49 @@ enum bifrost_tex_sreg {
    BI_TEX_SR_COUNT,
 };
 
+static void
+bi_lower_mirrored_gradient_offset(nir_builder *b, struct tex_srcs *srcs,
+                                  nir_def *sampler, nir_def *size,
+                                  nir_def *lod_fixed)
+{
+   nir_def *wrap_modes = nir_channel(b, sampler, 0);
+   nir_def *limits = nir_channel(b, sampler, 1);
+   nir_def *min_lod = nir_ubitfield_extract_imm(b, limits, 0, 13);
+   nir_def *max_lod = nir_ubitfield_extract_imm(b, limits, 16, 13);
+   nir_def *last = nir_ishl_imm(b, nir_iadd_imm(b, nir_channel(b, size, 3), -1), 8);
+   nir_def *lod = nir_i2i32(b, nir_unpack_32_2x16_split_x(b, lod_fixed));
+   lod = nir_imin(b, nir_imin(b, nir_imax(b, lod, min_lod), max_lod), last);
+
+   nir_def *nearest = nir_ieq_imm(b, nir_ushr_imm(b, wrap_modes, 30), 0);
+   nir_def *integral = nir_ieq_imm(b, nir_iand_imm(b, lod, 255), 0);
+   nir_def *single_level = nir_ior(b, nearest, integral);
+   nir_def *level = nir_f2u32(
+      b, nir_fround_even(b, nir_fmul_imm(b, nir_i2f32(b, lod), 1.0 / 256.0)));
+
+   nir_def *coord[4], *offset[3];
+   for (unsigned i = 0; i < srcs->coord->num_components; i++) {
+      coord[i] = nir_channel(b, srcs->coord, i);
+      if (i >= srcs->offset->num_components)
+         continue;
+
+      offset[i] = nir_channel(b, srcs->offset, i);
+      if (nir_scalar_is_zero(nir_get_scalar(offset[i], 0)))
+         continue;
+
+      nir_def *wrap = nir_ubitfield_extract_imm(b, wrap_modes, 16 - 4 * i, 4);
+      nir_def *emulate = nir_iand(b, single_level, nir_ieq_imm(b, wrap, 12));
+      nir_def *extent = nir_umax_imm(b, nir_ushr(b, nir_channel(b, size, i), level), 1);
+      nir_def *delta = nir_fdiv(b, nir_i2f32(b, offset[i]), nir_u2f32(b, extent));
+      nir_def *period = nir_ffract(b, nir_fmul_imm(b, coord[i], 0.5));
+      nir_def *shifted = nir_ffma(b, period, nir_imm_float(b, 2.0), delta);
+      coord[i] = nir_bcsel(b, emulate, shifted, coord[i]);
+      offset[i] = nir_bcsel(b, emulate, nir_imm_int(b, 0), offset[i]);
+   }
+
+   srcs->coord = nir_vec(b, coord, srcs->coord->num_components);
+   srcs->offset = nir_vec(b, offset, srcs->offset->num_components);
+}
+
 static bool
 bi_lower_tex(nir_builder *b, nir_tex_instr *tex, unsigned arch)
 {
@@ -511,7 +554,21 @@ bi_lower_tex(nir_builder *b, nir_tex_instr *tex, unsigned arch)
    };
 
    b->cursor = nir_before_instr(&tex->instr);
+   nir_def *sampler = nir_steal_tex_src(tex, nir_tex_src_backend1);
+   nir_def *size = nir_steal_tex_src(tex, nir_tex_src_backend2);
    struct tex_srcs srcs = steal_tex_srcs(b, tex, arch);
+
+   nir_def *gradient_lod = NULL;
+   if (!srcs.lod && !srcs.min_lod && !srcs.bias && (srcs.ddx || srcs.ddy)) {
+      nir_def *grdesc = build_bi_gradient_desc(b, srcs.tex_h, srcs.samp_h,
+                                               tex->sampler_dim, srcs.ddx, srcs.ddy);
+      gradient_lod = nir_channel(b, grdesc, 0);
+   }
+
+   if (sampler) {
+      assert(size && srcs.offset && gradient_lod);
+      bi_lower_mirrored_gradient_offset(b, &srcs, sampler, size, gradient_lod);
+   }
 
    nir_def *coord_xy = NULL;
    nir_def *sr[BI_TEX_SR_COUNT] = {};
@@ -575,12 +632,9 @@ bi_lower_tex(nir_builder *b, nir_tex_instr *tex, unsigned arch)
       } else if (srcs.min_lod || srcs.bias) {
          desc.lod_or_fetch = BIFROST_LOD_MODE_BIAS;
          sr[BI_TEX_SR_LOD] = build_lod_bias_clamp(b, srcs.bias, srcs.min_lod);
-      } else if (srcs.ddx || srcs.ddy) {
+      } else if (gradient_lod) {
          desc.lod_or_fetch = BIFROST_LOD_MODE_EXPLICIT;
-         nir_def *grdesc = build_bi_gradient_desc(b, srcs.tex_h, srcs.samp_h,
-                                                  tex->sampler_dim,
-                                                  srcs.ddx, srcs.ddy);
-         sr[BI_TEX_SR_LOD] = nir_channel(b, grdesc, 0);
+         sr[BI_TEX_SR_LOD] = gradient_lod;
       } else {
          desc.lod_or_fetch = BIFROST_LOD_MODE_COMPUTE;
       }
