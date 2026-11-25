@@ -471,6 +471,11 @@ panfrost_resource_get_handle(struct pipe_screen *pscreen,
    if (handle->type == WINSYS_HANDLE_TYPE_KMS && dev->ro) {
       return renderonly_get_handle(scanout, handle);
    } else if (handle->type == WINSYS_HANDLE_TYPE_KMS) {
+      /* The caller can turn the GEM handle into a dma-buf itself
+       * (drmPrimeHandleToFD()), so the BO must not go back to the BO cache
+       * and be recycled while someone else still uses it.
+       */
+      rsrc->bo->flags |= PAN_BO_SHARED;
       handle->handle = panfrost_bo_handle(rsrc->bo);
    } else if (handle->type == WINSYS_HANDLE_TYPE_FD) {
       int fd = panfrost_bo_export(rsrc->bo);
