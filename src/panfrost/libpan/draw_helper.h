@@ -38,4 +38,25 @@ struct libpan_draw_helper_attrib_info {
     /* When the attribute is per instance, the stride otherwise 0 */
     uint32_t stride;
 };
+
+struct libpan_draw_helper_entry {
+    uint64_t cmd;
+    uint64_t index_buffer_ptr;
+    uint64_t index_min_max_res;
+    uint64_t varying_bufs_descs;
+    uint64_t attrib_bufs_descs;
+    uint64_t attrib_bufs_infos;
+    uint64_t attribs_descs;
+    uint64_t attribs_infos;
+    uint64_t first_vertex_sysval;
+    uint64_t first_instance_sysval;
+    uint64_t raw_vertex_offset_sysval;
+    uint64_t idvs_job;
+    uint64_t vertex_job;
+    uint64_t tiler_job;
+    uint32_t index_size;
+    uint32_t primitive_vertex_count;
+    uint32_t attrib_bufs_valid;
+    uint32_t attribs_valid;
+};
 #endif

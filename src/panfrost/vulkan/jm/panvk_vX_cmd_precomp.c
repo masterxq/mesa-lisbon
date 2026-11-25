@@ -85,7 +85,8 @@ panvk_per_arch(dispatch_precomp)(struct panvk_precomp_ctx *ctx,
    bool suppress_prefetch =
       (barrier & PANLIB_BARRIER_JM_SUPPRESS_PREFETCH) != 0;
 
-   pan_jc_add_job(&batch->vtc_jc, MALI_JOB_TYPE_COMPUTE, job_barrier,
+   pan_jc_add_job(batch->precomp_jc ? batch->precomp_jc : &batch->vtc_jc,
+                  MALI_JOB_TYPE_COMPUTE, job_barrier,
                   suppress_prefetch, grid.jm.local_dep, grid.jm.global_dep,
                   &job, false);
 }

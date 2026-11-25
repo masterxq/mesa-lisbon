@@ -327,6 +327,7 @@ panvk_per_arch(cmd_open_batch)(struct panvk_cmd_buffer *cmdbuf)
    cmdbuf->cur_batch->jobs = UTIL_DYNARRAY_INIT;
    cmdbuf->cur_batch->event_ops = UTIL_DYNARRAY_INIT;
    cmdbuf->cur_batch->oq_available = UTIL_DYNARRAY_INIT;
+   cmdbuf->cur_batch->draw_helpers = UTIL_DYNARRAY_INIT;
    cmdbuf->state.uses_poly_heap = false;
    assert(cmdbuf->cur_batch);
    return cmdbuf->cur_batch;
@@ -339,6 +340,8 @@ panvk_per_arch(cmd_close_batch)(struct panvk_cmd_buffer *cmdbuf)
 
    if (!batch)
       return;
+
+   panvk_per_arch(cmd_flush_draw_helpers)(cmdbuf);
 
    struct util_dynarray available = batch->oq_available;
 
@@ -400,7 +403,7 @@ panvk_per_arch(cmd_init_poly_heap)(struct panvk_cmd_buffer *cmdbuf,
    }
 
    *job_id =
-      pan_jc_add_job(&batch->vtc_jc, MALI_JOB_TYPE_WRITE_VALUE, false, false,
+      pan_jc_add_job(&batch->pre_jc, MALI_JOB_TYPE_WRITE_VALUE, false, false,
                      0, 0, &job, false);
    util_dynarray_append(&batch->jobs, job.cpu);
 

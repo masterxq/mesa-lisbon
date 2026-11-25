@@ -36,6 +36,9 @@ struct panvk_batch {
    struct util_dynarray jobs;
    struct util_dynarray event_ops;
    struct util_dynarray oq_available;
+   struct util_dynarray draw_helpers;
+   struct pan_jc pre_jc;
+   struct pan_jc *precomp_jc;
    struct pan_jc vtc_jc;
    struct pan_jc frag_jc;
    struct {
@@ -136,6 +139,8 @@ struct panvk_batch *
    panvk_per_arch(cmd_open_batch)(struct panvk_cmd_buffer *cmdbuf);
 
 void panvk_per_arch(cmd_close_batch)(struct panvk_cmd_buffer *cmdbuf);
+
+void panvk_per_arch(cmd_flush_draw_helpers)(struct panvk_cmd_buffer *cmdbuf);
 
 VkResult panvk_per_arch(cmd_alloc_fb_desc)(struct panvk_cmd_buffer *cmdbuf);
 

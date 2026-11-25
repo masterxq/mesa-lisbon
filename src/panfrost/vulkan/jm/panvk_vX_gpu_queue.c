@@ -70,6 +70,33 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
     * make sure things are GPU-visible. */
    pan_kmod_flush_bo_map_syncs(dev->kmod.dev);
 
+   if (batch->pre_jc.first_job) {
+      struct drm_panfrost_submit submit = {
+         .bo_handles = (uintptr_t)bos,
+         .bo_handle_count = nr_bos,
+         .in_syncs = (uintptr_t)in_fences,
+         .in_sync_count = nr_in_fences,
+         .out_sync = queue->sync,
+         .jm_ctx_handle = queue->jm_ctx_handle,
+         .jc = batch->pre_jc.first_job,
+      };
+
+      ret = pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
+      if (ret)
+         return ret;
+
+      if (PANVK_DEBUG(TRACE) || PANVK_DEBUG(SYNC)) {
+         ret = pan_kmod_sync_wait(dev->kmod.dev, &submit.out_sync, 1,
+                                  INT64_MAX, 0, NULL);
+         assert(!ret);
+         panvk_pool_invalidate_maps(&cmdbuf->desc_pool);
+         pan_kmod_flush_bo_map_syncs(dev->kmod.dev);
+      }
+
+      in_fences = &queue->sync;
+      nr_in_fences = 1;
+   }
+
    if (batch->vtc_jc.first_job) {
       struct drm_panfrost_submit submit = {
          .bo_handles = (uintptr_t)bos,

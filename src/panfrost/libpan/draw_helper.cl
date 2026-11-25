@@ -457,8 +457,8 @@ padded_vertex_count(uint32_t vertex_count, uint32_t instance_count, bool idvs)
 
 /* Argument ordering choosen to avoid any padding */
 
-KERNEL(1)
-panlib_draw_indirect_helper(
+static void
+draw_indirect_helper(
    global VkDrawIndirectCommand *cmd,
    global struct poly_heap *heap,
    global struct mali_attribute_buffer_packed *varying_bufs_descs,
@@ -513,8 +513,8 @@ panlib_draw_indirect_helper(
    *raw_vertex_offset_sysval = draw.vertex.raw_offset;
 }
 
-KERNEL(1)
-panlib_draw_indexed_indirect_helper(
+static void
+draw_indexed_indirect_helper(
    global VkDrawIndexedIndirectCommand *cmd, global uint8_t *index_buffer_ptr,
    global struct libpan_draw_helper_index_min_max_result *index_min_max_res,
    uint32_t index_size, uint32_t primitive_vertex_count,
@@ -576,6 +576,49 @@ panlib_draw_indexed_indirect_helper(
    *first_vertex_sysval = draw.vertex.base;
    *first_instance_sysval = draw.instance.base;
    *raw_vertex_offset_sysval = draw.vertex.raw_offset;
+}
+
+KERNEL(1)
+panlib_draw_helper_batch(global struct libpan_draw_helper_entry *entries,
+                         global struct poly_heap *heap)
+{
+   global struct libpan_draw_helper_entry *e = &entries[cl_global_id.x];
+
+   if (e->index_size) {
+      draw_indexed_indirect_helper(
+         (global VkDrawIndexedIndirectCommand *)e->cmd,
+         (global uint8_t *)e->index_buffer_ptr,
+         (global struct libpan_draw_helper_index_min_max_result *)
+            e->index_min_max_res,
+         e->index_size, e->primitive_vertex_count,
+         e->attrib_bufs_valid, e->attribs_valid, heap,
+         (global struct mali_attribute_buffer_packed *)e->varying_bufs_descs,
+         (global struct mali_attribute_buffer_packed *)e->attrib_bufs_descs,
+         (global struct libpan_draw_helper_attrib_buf_info *)
+            e->attrib_bufs_infos,
+         (global struct mali_attribute_packed *)e->attribs_descs,
+         (global struct libpan_draw_helper_attrib_info *)e->attribs_infos,
+         (global uint32_t *)e->first_vertex_sysval,
+         (global uint32_t *)e->first_instance_sysval,
+         (global uint32_t *)e->raw_vertex_offset_sysval,
+         (global uint8_t *)e->idvs_job, (global uint8_t *)e->vertex_job,
+         (global uint8_t *)e->tiler_job);
+   } else {
+      draw_indirect_helper(
+         (global VkDrawIndirectCommand *)e->cmd, heap,
+         (global struct mali_attribute_buffer_packed *)e->varying_bufs_descs,
+         (global struct mali_attribute_buffer_packed *)e->attrib_bufs_descs,
+         (global struct libpan_draw_helper_attrib_buf_info *)
+            e->attrib_bufs_infos,
+         e->attrib_bufs_valid, e->attribs_valid,
+         (global struct mali_attribute_packed *)e->attribs_descs,
+         (global struct libpan_draw_helper_attrib_info *)e->attribs_infos,
+         (global uint32_t *)e->first_vertex_sysval,
+         (global uint32_t *)e->first_instance_sysval,
+         (global uint32_t *)e->raw_vertex_offset_sysval,
+         (global uint8_t *)e->idvs_job, (global uint8_t *)e->vertex_job,
+         (global uint8_t *)e->tiler_job, e->primitive_vertex_count);
+   }
 }
 
 KERNEL(64)

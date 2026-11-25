@@ -1528,7 +1528,6 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
 
    struct panvk_precomp_ctx precomp_ctx = panvk_per_arch(precomp_cs)(cmdbuf);
    uint64_t index_min_max_res_ptr = 0;
-   uint32_t job_before_indirect_helper = copy_desc_job_id;
    if (draw->info.index.index_size) {
       index_min_max_res_ptr =
          panvk_cmd_alloc_dev_mem(
@@ -1562,8 +1561,8 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
       };
 
       unsigned write_job_id =
-         pan_jc_add_job(&batch->vtc_jc, MALI_JOB_TYPE_WRITE_VALUE, false, false,
-                        0, copy_desc_job_id, &write_job, false);
+         pan_jc_add_job(&batch->pre_jc, MALI_JOB_TYPE_WRITE_VALUE, false, false,
+                        0, batch->pre_jc.job_index, &write_job, false);
       util_dynarray_append(&batch->jobs, write_job.cpu);
 
       const uint32_t index_count =
@@ -1571,11 +1570,12 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
       uint32_t wg_count = DIV_ROUND_UP(index_count, 65536);
       assert(wg_count <= 65536);
 
+      batch->precomp_jc = &batch->pre_jc;
       panlib_draw_index_minmax_search_helper_struct(
          &precomp_ctx, panlib_1d_with_jm_deps(wg_count, 0, write_job_id),
          PANLIB_BARRIER_NONE, args, util_logbase2(draw->info.index.index_size),
          draw->info.index.restart_enable);
-      job_before_indirect_helper = batch->vtc_jc.job_index;
+      batch->precomp_jc = NULL;
    }
 
    for (uint32_t i = 0; i < enabled_layer_count; i++) {
@@ -1616,65 +1616,31 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
                vs, sysval_offset(graphics, vs.raw_vertex_offset));
       }
 
-      enum panlib_barrier indirect_barrier =
-         PANLIB_BARRIER_JM_SUPPRESS_PREFETCH;
-      struct panlib_precomp_grid indirect_grid = panlib_1d_with_jm_deps(
-         1, init_heap_job_id, job_before_indirect_helper);
+      const struct libpan_draw_helper_entry entry = {
+         .cmd = draw->info.indirect.buffer_dev_addr,
+         .index_buffer_ptr = draw->info.index.buffer_dev_addr,
+         .index_min_max_res = index_min_max_res_ptr,
+         .varying_bufs_descs = draw->varying_bufs,
+         .attrib_bufs_descs = draw->vs.attribute_bufs,
+         .attrib_bufs_infos = draw->indirect_info.attrib_bufs,
+         .attribs_descs = draw->vs.attributes,
+         .attribs_infos = draw->indirect_info.attribs,
+         .first_vertex_sysval = first_vertex_sysval,
+         .first_instance_sysval = first_instance_sysval,
+         .raw_vertex_offset_sysval = raw_vertex_offset_sysval,
+         .idvs_job = vs->info.vs.idvs ? draw->jobs.idvs.gpu : 0,
+         .vertex_job = draw->jobs.vertex.gpu,
+         .tiler_job = draw->jobs.tiler.gpu,
+         .index_size = draw->info.index.index_size,
+         .primitive_vertex_count = mesa_vertices_per_prim(draw->info.prim),
+         .attrib_bufs_valid = attrib_bufs_valid,
+         .attribs_valid = attribs_valid,
+      };
 
-      if (draw->info.indirect.buffer_dev_addr != 0 &&
-          draw->info.index.index_size) {
-         const struct panlib_draw_indexed_indirect_helper_args args = {
-            .cmd = draw->info.indirect.buffer_dev_addr,
-            .heap = panvk_priv_mem_dev_addr(dev->poly_heap.state),
-            .index_buffer_ptr = draw->info.index.buffer_dev_addr,
-            .index_min_max_res = index_min_max_res_ptr,
-            .index_size = draw->info.index.index_size,
-            .primitive_vertex_count =
-               mesa_vertices_per_prim(draw->info.prim),
-            .varying_bufs_descs = draw->varying_bufs,
-            .attrib_bufs_descs = draw->vs.attribute_bufs,
-            .attrib_bufs_infos = draw->indirect_info.attrib_bufs,
-            .attrib_bufs_valid = attrib_bufs_valid,
-            .attribs_valid = attribs_valid,
-            .attribs_descs = draw->vs.attributes,
-            .attribs_infos = draw->indirect_info.attribs,
-            .first_vertex_sysval = first_vertex_sysval,
-            .first_instance_sysval = first_instance_sysval,
-            .raw_vertex_offset_sysval = raw_vertex_offset_sysval,
-            .idvs_job = vs->info.vs.idvs ? draw->jobs.idvs.gpu : 0,
-            .vertex_job = draw->jobs.vertex.gpu,
-            .tiler_job = draw->jobs.tiler.gpu,
-         };
-         panlib_draw_indexed_indirect_helper_struct(&precomp_ctx, indirect_grid,
-                                                    indirect_barrier, args);
-      } else if (draw->info.indirect.buffer_dev_addr != 0) {
-         const struct panlib_draw_indirect_helper_args args = {
-            .cmd = draw->info.indirect.buffer_dev_addr,
-            .primitive_vertex_count =
-               mesa_vertices_per_prim(draw->info.prim),
-            .heap = panvk_priv_mem_dev_addr(dev->poly_heap.state),
-            .varying_bufs_descs = draw->varying_bufs,
-            .attrib_bufs_descs = draw->vs.attribute_bufs,
-            .attrib_bufs_infos = draw->indirect_info.attrib_bufs,
-            .attrib_bufs_valid = attrib_bufs_valid,
-            .attribs_valid = attribs_valid,
-            .attribs_descs = draw->vs.attributes,
-            .attribs_infos = draw->indirect_info.attribs,
-            .first_vertex_sysval = first_vertex_sysval,
-            .first_instance_sysval = first_instance_sysval,
-            .raw_vertex_offset_sysval = raw_vertex_offset_sysval,
-            .idvs_job = vs->info.vs.idvs ? draw->jobs.idvs.gpu : 0,
-            .vertex_job = draw->jobs.vertex.gpu,
-            .tiler_job = draw->jobs.tiler.gpu,
-         };
-         panlib_draw_indirect_helper_struct(&precomp_ctx, indirect_grid,
-                                            indirect_barrier, args);
-      } else {
-         assert(false && "Invalid indirect draw");
-      }
+      assert(draw->info.indirect.buffer_dev_addr != 0);
+      util_dynarray_append(&batch->draw_helpers, entry);
 
-      /* Grab the index of the indirect helper job */
-      uint32_t prev_job = batch->vtc_jc.job_index;
+      uint32_t prev_job = copy_desc_job_id;
 
       if (vs->info.vs.idvs) {
          pan_jc_add_job(&batch->vtc_jc, MALI_JOB_TYPE_INDEXED_VERTEX, false,
@@ -1701,13 +1667,49 @@ panvk_cmd_draw_indirect(struct panvk_cmd_buffer *cmdbuf,
     * the same time, because of how TLS works on Mali, we should not split too
     * much as this will cause the TLS budget to go crazy.
     */
-   if (batch->vtc_jc.job_index > (5 * 1024)) {
+   if (batch->vtc_jc.job_index > (5 * 1024) ||
+       batch->pre_jc.job_index > (5 * 1024)) {
       panvk_per_arch(cmd_close_batch)(cmdbuf);
       batch = panvk_per_arch(cmd_open_batch)(cmdbuf);
       cmdbuf->state.uses_poly_heap = false;
    }
 
    clear_dirty_after_draw(cmdbuf);
+}
+
+void
+panvk_per_arch(cmd_flush_draw_helpers)(struct panvk_cmd_buffer *cmdbuf)
+{
+   struct panvk_device *dev = to_panvk_device(cmdbuf->vk.base.device);
+   struct panvk_batch *batch = cmdbuf->cur_batch;
+   const uint32_t count = util_dynarray_num_elements(
+      &batch->draw_helpers, struct libpan_draw_helper_entry);
+
+   if (!count)
+      return;
+
+   struct pan_ptr entries = panvk_cmd_alloc_dev_mem(
+      cmdbuf, desc, count * sizeof(struct libpan_draw_helper_entry), 8);
+
+   if (entries.gpu) {
+      memcpy(entries.cpu, util_dynarray_begin(&batch->draw_helpers),
+             count * sizeof(struct libpan_draw_helper_entry));
+
+      const struct panlib_draw_helper_batch_args args = {
+         .entries = entries.gpu,
+         .heap = panvk_priv_mem_dev_addr(dev->poly_heap.state),
+      };
+      struct panvk_precomp_ctx precomp_ctx = panvk_per_arch(precomp_cs)(cmdbuf);
+
+      batch->precomp_jc = &batch->pre_jc;
+      panlib_draw_helper_batch_struct(
+         &precomp_ctx, panlib_1d_with_jm_deps(count, 0, batch->pre_jc.job_index),
+         PANLIB_BARRIER_NONE, args);
+      batch->precomp_jc = NULL;
+   }
+
+   util_dynarray_fini(&batch->draw_helpers);
+   batch->draw_helpers = UTIL_DYNARRAY_INIT;
 }
 
 static unsigned
