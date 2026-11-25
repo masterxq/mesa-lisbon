@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - 'lisbon/**'
+    paths-ignore:
+      - '**.md'
 
 permissions:
   contents: read
@@ -44,3 +46,13 @@ jobs:
           name: panvk-lisbon-deb
           path: deb/*.deb
           if-no-files-found: error
+
+  # Publishes the package to the APT registry codeberg.org/moblix (reusable workflow of pocket-debs).
+  registry:
+    needs: panvk-deb
+    if: ${{ github.ref == 'refs/heads/lisbon/26.3' }}
+    uses: masterxq/pocket-debs/.github/workflows/registry.yml@main
+    with:
+      artefakte: 'panvk-lisbon-deb'
+    secrets:
+      CODEBERG_TOKEN: ${{ secrets.CODEBERG_TOKEN }}
