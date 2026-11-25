@@ -33,7 +33,7 @@
 
 #include "drm-uapi/panfrost_drm.h"
 
-static void
+static int
 panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
                          struct panvk_cmd_buffer *cmdbuf,
                          struct panvk_batch *batch, uint32_t *bos,
@@ -82,7 +82,8 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
       };
 
       ret = pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
-      assert(!ret);
+      if (ret)
+         return ret;
 
       if (PANVK_DEBUG(TRACE) || PANVK_DEBUG(SYNC)) {
          ret = pan_kmod_sync_wait(dev->kmod.dev, &submit.out_sync, 1,
@@ -127,7 +128,8 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
       }
 
       ret = pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_SUBMIT, &submit);
-      assert(!ret);
+      if (ret)
+         return ret;
       if (PANVK_DEBUG(TRACE) || PANVK_DEBUG(SYNC)) {
          ret = pan_kmod_sync_wait(dev->kmod.dev, &submit.out_sync, 1,
                                   INT64_MAX, 0, NULL);
@@ -155,6 +157,7 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
       pandecode_next_frame(dev->debug.decode_ctx);
 
    batch->issued = true;
+   return 0;
 }
 
 static void
@@ -310,8 +313,9 @@ panvk_per_arch(gpu_queue_submit)(struct vk_queue *vk_queue, struct vk_queue_subm
 
          panvk_add_wait_event_syncobjs(batch, in_fences, &nr_in_fences);
 
-         panvk_queue_submit_batch(queue, cmdbuf, batch, bos, nr_bos, in_fences,
-                                  nr_in_fences);
+         if (panvk_queue_submit_batch(queue, cmdbuf, batch, bos, nr_bos,
+                                      in_fences, nr_in_fences))
+            return vk_queue_set_lost(&queue->vk, "job submission failed: %m");
 
          panvk_signal_event_syncobjs(queue, batch);
       }
