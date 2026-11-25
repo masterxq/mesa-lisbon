@@ -35,7 +35,9 @@ The package contains only the PanVK driver:
 - `/usr/lib/aarch64-linux-gnu/panvk-lisbon/libvulkan_panfrost.so`
 - `/usr/share/vulkan/icd.d/panvk_lisbon_icd.json`
 
-It can be installed next to Debian's `mesa-vulkan-drivers`:
+The same patches are part of the complete Mesa packages of
+[pocket-debs](https://github.com/masterxq/pocket-debs) (recipe `mesa`). This package is the driver alone; it can
+be installed next to Debian's `mesa-vulkan-drivers`:
 
     sudo apt install ./panvk-lisbon_*_arm64.deb
 
