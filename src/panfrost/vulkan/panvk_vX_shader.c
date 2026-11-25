@@ -591,6 +591,22 @@ valhall_pack_buf_idx(nir_builder *b, nir_instr *instr, UNUSED void *data)
 }
 #endif
 
+#if PAN_ARCH < 9
+static bool
+is_cube_image_access(const nir_intrinsic_instr *intr, UNUSED const void *data)
+{
+   switch (intr->intrinsic) {
+   case nir_intrinsic_image_deref_load:
+   case nir_intrinsic_image_deref_store:
+   case nir_intrinsic_image_deref_atomic:
+   case nir_intrinsic_image_deref_atomic_swap:
+      return nir_intrinsic_image_dim(intr) == GLSL_SAMPLER_DIM_CUBE;
+   default:
+      return false;
+   }
+}
+#endif
+
 static bool
 is_robust_ssbo_intr(const nir_intrinsic_instr *intr, UNUSED const void *data)
 {
@@ -867,8 +883,15 @@ panvk_lower_nir(struct panvk_device *dev, nir_shader *nir,
    /* We need to do this before nir_lower_descriptors so any image_deref_size
     * intrinsics generated can be lowered there.
     */
-   if (PAN_ARCH < 9)
-      NIR_PASS(_, nir, pan_nir_lower_image_ms);
+#if PAN_ARCH < 9
+   NIR_PASS(_, nir, pan_nir_lower_image_ms);
+
+   /* Check bounds before converting cube storage images into Bifrost's
+    * image coordinates and narrowing those coordinates to 16 bits.
+    */
+   if (rs->images != VK_PIPELINE_ROBUSTNESS_IMAGE_BEHAVIOR_DISABLED_EXT)
+      NIR_PASS(_, nir, nir_lower_robust_access, is_cube_image_access, NULL);
+#endif
 
    panvk_per_arch(nir_lower_descriptors)(nir, dev, rs, set_layout_count,
                                          set_layouts, state, desc_info);
