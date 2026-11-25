@@ -516,8 +516,8 @@ panvk_create_cmdbuf(struct vk_command_pool *vk_pool, VkCommandBufferLevel level,
       .owns_bos = true,
       .needs_locking = false,
    };
-   panvk_pool_init(&cmdbuf->varying_pool, device, &pool->varying_bo_pool, NULL,
-                   &var_pool_props);
+   panvk_pool_init(&cmdbuf->varying_pool, device, &pool->varying_bo_pool,
+                   &pool->varying_big_bo_pool, &var_pool_props);
 
    list_inithead(&cmdbuf->batches);
    *cmdbuf_out = &cmdbuf->vk;
