@@ -33,6 +33,14 @@
 #define RESERVED_UBO_COUNT                   6
 #define MAX_INLINE_UNIFORM_BLOCK_DESCRIPTORS (32 - RESERVED_UBO_COUNT)
 
+static bool
+has_global_priority(const struct panvk_physical_device *device)
+{
+   return PAN_ARCH >= 10 ||
+          (device->kmod.dev->props.allowed_group_priorities_mask &
+           PAN_KMOD_GROUP_ALLOW_PRIORITY_LOW);
+}
+
 void
 panvk_per_arch(get_physical_device_extensions)(
    const struct panvk_physical_device *device,
@@ -71,7 +79,7 @@ panvk_per_arch(get_physical_device_extensions)(
       .KHR_external_semaphore_fd = true,
       .KHR_format_feature_flags2 = true,
       .KHR_get_memory_requirements2 = true,
-      .KHR_global_priority = true,
+      .KHR_global_priority = has_global_priority(device),
       .KHR_image_format_list = true,
       .KHR_imageless_framebuffer = true,
       .KHR_index_type_uint8 = true,
@@ -168,8 +176,8 @@ panvk_per_arch(get_physical_device_extensions)(
       .EXT_extended_dynamic_state3 = true,
       .EXT_external_memory_acquire_unmodified = true,
       .EXT_external_memory_dma_buf = true,
-      .EXT_global_priority = true,
-      .EXT_global_priority_query = true,
+      .EXT_global_priority = has_global_priority(device),
+      .EXT_global_priority_query = has_global_priority(device),
       .EXT_graphics_pipeline_library = true,
       .EXT_hdr_metadata = true,
       .EXT_host_image_copy = true,
@@ -456,7 +464,7 @@ panvk_per_arch(get_physical_device_features)(
       .maintenance4 = true,
 
       /* Vulkan 1.4 */
-      .globalPriorityQuery = true,
+      .globalPriorityQuery = has_global_priority(device),
       .shaderSubgroupRotate = true,
       .shaderSubgroupRotateClustered = true,
       .shaderFloatControls2 = true,

@@ -9,6 +9,8 @@
  * SPDX-License-Identifier: MIT
  */
 
+#include <errno.h>
+
 #include "genxml/gen_macros.h"
 
 #include "decode.h"
@@ -75,6 +77,7 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
          .in_syncs = (uintptr_t)in_fences,
          .in_sync_count = nr_in_fences,
          .out_sync = queue->sync,
+         .jm_ctx_handle = queue->jm_ctx_handle,
          .jc = batch->vtc_jc.first_job,
       };
 
@@ -110,6 +113,7 @@ panvk_queue_submit_batch(struct panvk_gpu_queue *queue,
          .bo_handles = (uintptr_t)bos,
          .bo_handle_count = nr_bos,
          .out_sync = queue->sync,
+         .jm_ctx_handle = queue->jm_ctx_handle,
          .jc = batch->frag_jc.first_job,
          .requirements = PANFROST_JD_REQ_FS,
       };
@@ -331,15 +335,12 @@ panvk_per_arch(create_gpu_queue)(struct panvk_device *device,
                                  uint32_t queue_idx,
                                  struct vk_queue **out_queue)
 {
-   ASSERTED const VkDeviceQueueGlobalPriorityCreateInfoKHR *priority_info =
+   const VkDeviceQueueGlobalPriorityCreateInfoKHR *priority_info =
       vk_find_struct_const(create_info->pNext,
                            DEVICE_QUEUE_GLOBAL_PRIORITY_CREATE_INFO_KHR);
-   ASSERTED const VkQueueGlobalPriorityKHR priority =
+   const VkQueueGlobalPriorityKHR priority =
       priority_info ? priority_info->globalPriority
                     : VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR;
-
-   /* XXX: Panfrost kernel module doesn't support priorities so far */
-   assert(priority == VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR);
 
    struct panvk_gpu_queue *queue = vk_zalloc(&device->vk.alloc, sizeof(*queue), 8,
                                          VK_SYSTEM_ALLOCATION_SCOPE_DEVICE);
@@ -358,9 +359,32 @@ panvk_per_arch(create_gpu_queue)(struct panvk_device *device,
       goto err_finish_queue;
    }
 
+   if (priority != VK_QUEUE_GLOBAL_PRIORITY_MEDIUM_KHR) {
+      assert(priority == VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR ||
+             priority == VK_QUEUE_GLOBAL_PRIORITY_HIGH_KHR);
+      struct drm_panfrost_jm_ctx_create create_ctx = {
+         .priority = priority == VK_QUEUE_GLOBAL_PRIORITY_LOW_KHR
+                        ? PANFROST_JM_CTX_PRIORITY_LOW
+                        : PANFROST_JM_CTX_PRIORITY_HIGH,
+      };
+      ret = pan_kmod_ioctl(device->drm_fd, DRM_IOCTL_PANFROST_JM_CTX_CREATE,
+                          &create_ctx);
+      if (ret) {
+         result = errno == EACCES || errno == EPERM
+                     ? VK_ERROR_NOT_PERMITTED_KHR
+                     : VK_ERROR_OUT_OF_HOST_MEMORY;
+         result = panvk_error(device, result);
+         goto err_destroy_sync;
+      }
+      queue->jm_ctx_handle = create_ctx.handle;
+   }
+
    queue->vk.driver_submit = panvk_per_arch(gpu_queue_submit);
    *out_queue = &queue->vk;
    return VK_SUCCESS;
+
+err_destroy_sync:
+   pan_kmod_sync_destroy(device->kmod.dev, queue->sync);
 
 err_finish_queue:
    vk_queue_finish(&queue->vk);
@@ -376,6 +400,15 @@ void panvk_per_arch(destroy_gpu_queue)(struct vk_queue *vk_queue)
    struct panvk_device *dev = to_panvk_device(vk_queue->base.device);
 
    vk_queue_finish(&queue->vk);
+   if (queue->jm_ctx_handle) {
+      struct drm_panfrost_jm_ctx_destroy destroy_ctx = {
+         .handle = queue->jm_ctx_handle,
+      };
+      ASSERTED int ret =
+         pan_kmod_ioctl(dev->drm_fd, DRM_IOCTL_PANFROST_JM_CTX_DESTROY,
+                        &destroy_ctx);
+      assert(!ret);
+   }
    pan_kmod_sync_destroy(dev->kmod.dev, queue->sync);
    vk_free(&dev->vk.alloc, queue);
 }
