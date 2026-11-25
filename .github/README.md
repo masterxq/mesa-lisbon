@@ -2,8 +2,7 @@
 
 This branch is a Mesa release with downstream patches for PanVK, Mesa's
 Vulkan driver for Arm Mali GPUs, on the Mali-G76 (Bifrost v7, job manager)
-of the Motorola Moto G60s. Each patch is a separate commit on top of the
-release tag.
+of the Motorola Moto G60s.
 
 This is a downstream branch. Please do not report problems with it to the
 Mesa project.
