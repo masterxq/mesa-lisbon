@@ -1263,6 +1263,7 @@ panfrost_resource_restore_format(struct panfrost_resource *rsrc,
    rsrc->base.format = saved->base.format;
    rsrc->image.props.format = saved->image.props.format;
    rsrc->base.width0 = saved->base.width0;
+   rsrc->base.height0 = saved->base.height0;
    rsrc->image.props.extent_px.width = saved->image.props.extent_px.width;
    rsrc->image.props.extent_px.height = saved->image.props.extent_px.height;
 }

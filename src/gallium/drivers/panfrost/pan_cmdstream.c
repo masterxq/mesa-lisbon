@@ -4074,6 +4074,23 @@ panfrost_mtk_detile_compute(struct panfrost_context *ctx, struct pipe_blit_info 
          DIV_ROUND_UP(uv_src->height0, 16);
    }
 
+   /* Before Valhall, images are bound as attribute buffers whose S/T
+    * dimensions come from the pipe_resource. For the tiled sources that is
+    * the size of the detiled plane, but the shader reads the one-tile-per-row
+    * view set up at import (extent_px), which has far more rows: loads past
+    * the plane height would be out of bounds and return zero, leaving the
+    * lower part of the destination black. Expose the view size while the
+    * images are bound; panfrost_resource_restore_format() puts it back. */
+   if (y_src) {
+      y_src->width0 = pan_resource(y_src)->image.props.extent_px.width;
+      y_src->height0 = pan_resource(y_src)->image.props.extent_px.height;
+   }
+
+   if (uv_src) {
+      uv_src->width0 = pan_resource(uv_src)->image.props.extent_px.width;
+      uv_src->height0 = pan_resource(uv_src)->image.props.extent_px.height;
+   }
+
    image[0].resource = y_src;
    image[0].format = PIPE_FORMAT_R8G8B8A8_UINT;
    image[0].shader_access = image[0].access = PIPE_IMAGE_ACCESS_READ;
